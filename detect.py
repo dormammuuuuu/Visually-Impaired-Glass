@@ -7,6 +7,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import threading
 
+from flask import Flask, request
 from numpy import random
 
 from models.experimental import attempt_load
@@ -18,8 +19,9 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 engine = pyttsx3.init()
 voice = engine.getProperty('voices') #get the available voices
-# eng.setProperty('voice', voice[0].id) #set the voice to index 0 for male voice
 engine.setProperty('voice', voice[1].id) #changing voice to index 1 for female voice
+
+
 class Detect:
     def __init__(self):
        self.opt = argparse.Namespace(agnostic_nms=False, 
@@ -42,12 +44,13 @@ class Detect:
                                      read = False)
        self.width_in_rf = 0
        self.label = ''
-       self.KNOWN_DISTANCE = 45
-       self.PERSON_WIDTH = 30
+       self.KNOWN_DISTANCE = 25.0
+       self.PERSON_WIDTH = 40
        self.MOBILE_WIDTH = 3.0
        self.CONFIDENCE_THRESHOLD = 0.4
        self.NMS_THRESHOLD = 0.3
        self.distance = 0
+       self.haptics = 'off'
        engine.stop()
     
     def focalLength(self, width_in_rf):
@@ -55,12 +58,14 @@ class Detect:
       
         return focal_length
    
-   
+    def get_haptics(self):
+        return self.haptics
+    
     def distanceEstimate(self, focal_length, width_in_rf):
         distance = (focal_length * self.KNOWN_DISTANCE) / width_in_rf
         
         # convert inches to feet
-        distance = distance / 39
+        distance = distance / 100
         
         return distance
     
@@ -175,13 +180,18 @@ class Detect:
 
                             # Determine if the bounding box is on the left, center, or right of the image
                             if bbox_center < image_center - 50:
+                                positionInFrame = "left"
                                 detected_area.append("left")
                             elif bbox_center > image_center + 50:
+                                positionInFrame = "right"
                                 detected_area.append("right")
                             else:
+                                positionInFrame = "center"
                                 detected_area.append("center")
-
-                            
+                            # urlPos = "http://127.0.0.1:5000/api/haptics/" + positionInFrame
+                            # print(urlPos)
+                            # response = request.get("http://127.0.0.1:5000/api/haptics/" + positionInFrame)
+                            # print (response.text)
                             self.label = f'{names[int(cls)]} {int(cls)}'
                             # print width
                             # print(f'width: {self.width_in_rf} label: {self.label}')
@@ -190,41 +200,41 @@ class Detect:
                                 
                                 if names[int(cls)] == 'person':
                                     self.distance = self.distanceEstimate(focal_person, self.width_in_rf)
-                                elif names[int(cls)] == 'cell phone':
+                                elif names[int(cls)] == 'dog':
                                     self.distance = self.distanceEstimate(focal_phone, self.width_in_rf)
                                 
-                                if self.distance < 40:
+                                if self.distance < 4:
                                     # set colors to red
-                                    if self.distance < 3:
+                                    if self.distance < .2:
                                         detected_classes.append(names[int(cls)])
                                         detected_distance.append(self.distance)
-                                        label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} feet'
+                                        label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} meters'
                                         colors[int(cls)] = [0, 0, 255]
                                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
                                     else:
-                                        detected_classes.append(names[int(cls)])
-                                        detected_distance.append(self.distance)
-                                        label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} feet'
+                                        #  detected_classes.append(names[int(cls)])
+                                        # detected_distance.append(self.distance)
+                                        label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} meters'
                                         colors[int(cls)] = [0, 255, 0]
                                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
                                 
 
                     # Construct detected_string
-                    distance_strings = [f"is too close to you" if distance < 3 else f"{round(float(distance), 1)} feet away" for distance in detected_distance]
-                    position_strings = ["on your left" if detected_area[i] == 'left' else "in front of you" if detected_area[i] == 'center' else "on your right" for i in range(len(detected_area))]
+                    distance_strings = [f"too close to you" if distance < 3 else f"{round(float(distance), 1)} meters away" for distance in detected_distance]
+                    position_strings = ["on your left side" if detected_area[i] == 'left' else "ahead of you" if detected_area[i] == 'center' else "on your right side" for i in range(len(detected_area))]
                     detected_string = ", ".join([f"{clazz} {distance_strings[i]} {position_strings[i]}" for i, clazz in enumerate(detected_classes)])
-
+                    
                     # Construct speech output
-                    if len(detected_classes) == 1:
-                        speech = f"I detected a {detected_string}."
-                    else:
-                        speech = f"I detected multiple objects. {detected_string}."
-                    print(f'Speech: {speech}')
+                    if len(detected_string) > 0: 
+                        if len(detected_classes) == 1:
+                            speech = f"{detected_string}."
+                        else:
+                            speech = f"{detected_string}."
+                        print(f'Speech: {speech}')
 
-                    # Start a new thread to run the speak_warning function
-
-                    tts_thread = threading.Thread(target=self.speak_warning, args=(speech,))
-                    tts_thread.start()
+                        # Start a new thread to run the speak_warning function                    
+                        tts_thread = threading.Thread(target=self.speak_warning, args=(speech,))
+                        tts_thread.start()
                           
                 # Print time (inference + NMS)
                 # print(f'{s}Done. ({t2 - t1:.3f}s)')``
@@ -308,29 +318,36 @@ class Detect:
                     strip_optimizer(self.opt.weights)
             else:
                 self.detect()
-                
-detect = Detect()
 
 
-detect.config('weights/v5lite-s.pt', 'ref/image14.png', 0, True, False)
 
-detect.detect()
+focal_person = None
+focal_phone = None  
 
-person, plabel = detect.width_in_rf, detect.label
+def inference(): 
+    global focal_person, focal_phone               
+    detect = Detect()
 
-detect.config('weights/v5lite-s.pt', 'ref/image4.png', 67, True, False)
+    detect.config('weights/v5lite-g.pt', 'ref/50.jpg', 0, True, False)
 
-detect.detect()
+    detect.detect()
 
-phone, phLabel = detect.width_in_rf, detect.label
+    person, plabel = detect.width_in_rf, detect.label
 
-print(f'{plabel}: {person} | {phLabel}: {phone}')
+    detect.config('weights/v5lite-g.pt', 'ref/dog50.jpg', 16, True, False)
 
-focal_person = detect.focalLength(person)
-focal_phone = detect.focalLength(phone)
+    detect.detect()
 
-print(f'focal length of person: {focal_person} | focal length of phone: {focal_phone}')
+    phone, phLabel = detect.width_in_rf, detect.label
 
-detect.config('weights/v5lite-s.pt', '0', [0, 67], False, False)
+    print(f'{plabel}: {person} | {phLabel}: {phone}')
 
-detect.detect()
+    focal_person = detect.focalLength(person)
+    focal_phone = detect.focalLength(phone)
+
+    print(f'focal length of person: {focal_person} | focal length of phone: {focal_phone}')
+
+    detect.config('weights/v5lite-s.pt', '0', [0,17], False, False)
+
+    detect.detect()
+    print(detect.get_haptics())
