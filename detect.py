@@ -1,4 +1,5 @@
 import argparse
+import RPi.GPIO as GPIO
 import time
 from pathlib import Path
 import pyttsx3
@@ -17,9 +18,7 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
-engine = pyttsx3.init()
-voice = engine.getProperty('voices') #get the available voices
-engine.setProperty('voice', voice[1].id) #changing voice to index 1 for female voice
+
 
 
 class Detect:
@@ -51,8 +50,27 @@ class Detect:
        self.NMS_THRESHOLD = 0.3
        self.distance = 0
        self.haptics = 'off'
-       engine.stop()
+       self.leftVib= 23
+       self.righVib = 24
+ 
+
     
+    def left_vib(self):
+        GPIO.output(self.leftVib, GPIO.HIGH)
+        time.sleep(.2)
+        GPIO.output(self.leftVib, GPIO.LOW)
+
+    def right_vib(self):
+        GPIO.output(self.righVib, GPIO.HIGH)
+        time.sleep(.2)
+        GPIO.output(self.righVib, GPIO.LOW)
+    
+    def center_vib(self):
+        tts_thread_l = threading.Thread(target=self.left_vib)
+        tts_thread_r = threading.Thread(target=self.right_vib)
+        tts_thread_l.start()
+        tts_thread_r.start()
+
     def focalLength(self, width_in_rf):
         focal_length = (width_in_rf * self.KNOWN_DISTANCE) / self.PERSON_WIDTH
       
@@ -70,7 +88,21 @@ class Detect:
         return distance
     
     
+    
     def detect(self, save_img=False):
+        # setup gpio
+        engine = pyttsx3.init()
+        voice = engine.getProperty('voices') #get the available voices
+
+        engine.setProperty('voice', 'english+f4')
+        engine.setProperty('rate', 180) #changing voice to index 1 for female voice
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(self.leftVib, GPIO.OUT)
+        GPIO.setup(self.righVib, GPIO.OUT)
+        GPIO.output(self.leftVib, GPIO.HIGH)
+        GPIO.output(self.leftVib, GPIO.LOW)
         source, weights, view_img, save_txt, imgsz = self.opt.source, self.opt.weights, self.opt.view_img, self.opt.save_txt, self.opt.img_size
         save_img = not self.opt.nosave and not source.endswith('.txt')  # save inference images
         webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -142,7 +174,6 @@ class Detect:
                     p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
                 else:
                     p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
-
                 p = Path(p)  # to Path
                 save_path = str(save_dir / p.name)  # img.jpg
                 txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
@@ -205,15 +236,13 @@ class Detect:
                                 
                                 if self.distance < 4:
                                     # set colors to red
-                                    if self.distance < .2:
+                                    if self.distance < 2:
                                         detected_classes.append(names[int(cls)])
                                         detected_distance.append(self.distance)
                                         label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} meters'
                                         colors[int(cls)] = [0, 0, 255]
                                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
                                     else:
-                                        #  detected_classes.append(names[int(cls)])
-                                        # detected_distance.append(self.distance)
                                         label = f'{names[int(cls)]} {conf:.2f} {self.distance:.2f} meters'
                                         colors[int(cls)] = [0, 255, 0]
                                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
@@ -221,25 +250,29 @@ class Detect:
 
                     # Construct detected_string
                     distance_strings = [f"too close to you" if distance < 3 else f"{round(float(distance), 1)} meters away" for distance in detected_distance]
-                    position_strings = ["on your left side" if detected_area[i] == 'left' else "ahead of you" if detected_area[i] == 'center' else "on your right side" for i in range(len(detected_area))]
+                    position_strings = ["on your left"  if detected_area[i] == 'left' else "ahead of you" if detected_area[i] == 'center' else "on your right" for i in range(len(detected_area))]
                     detected_string = ", ".join([f"{clazz} {distance_strings[i]} {position_strings[i]}" for i, clazz in enumerate(detected_classes)])
                     
                     # Construct speech output
                     if len(detected_string) > 0: 
-                        if len(detected_classes) == 1:
-                            speech = f"{detected_string}."
-                        else:
-                            speech = f"{detected_string}."
-                        print(f'Speech: {speech}')
+                        for position in detected_area:
+                            if position == "left":
+                                print("Left")
+                                self.left_vib()
+                            elif position == "right":
+                                print("Right")
+                                self.right_vib()
+                            else:
+                                print("Center")
+                                self.center_vib()
+                        if len(detected_classes) > 0:
+                            speech = f"Be careful! A {detected_string}"
+                            print(f'Speech: {speech}')
 
-                        # Start a new thread to run the speak_warning function                    
-                        tts_thread = threading.Thread(target=self.speak_warning, args=(speech,))
-                        tts_thread.start()
-                          
-                # Print time (inference + NMS)
-                # print(f'{s}Done. ({t2 - t1:.3f}s)')``
+                            # Start a new thread to run the speak_warning function                    
+                            tts_thread = threading.Thread(target=self.speak_warning, args=(speech,engine,))
+                            tts_thread.start()
 
-                # Stream results
                 if view_img:
                     cv2.imshow(str(p), im0)
                     cv2.waitKey(1)  # 1 millisecond
@@ -274,7 +307,7 @@ class Detect:
             
         print(f'Done. ({time.time() - t0:.3f}s)')
 
-    def speak_warning(self, str):
+    def speak_warning(self, str, engine):
         if not engine._inLoop:
             engine.say(str)
             engine.runAndWait()
@@ -347,7 +380,7 @@ def inference():
 
     print(f'focal length of person: {focal_person} | focal length of phone: {focal_phone}')
 
-    detect.config('weights/v5lite-s.pt', '0', [0,17], False, False)
+    detect.config('weights/v5lite-s.pt', 'https://192.168.1.23:8080/video', [0,17], False, False)
 
     detect.detect()
     print(detect.get_haptics())
