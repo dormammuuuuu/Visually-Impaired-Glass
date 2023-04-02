@@ -232,7 +232,7 @@ class Detect:
                                 if names[int(cls)] == 'person':
                                     self.distance = self.distanceEstimate(focal_person, self.width_in_rf)
                                 elif names[int(cls)] == 'dog':
-                                    self.distance = self.distanceEstimate(focal_phone, self.width_in_rf)
+                                    self.distance = self.distanceEstimate(focal_dog, self.width_in_rf)
                                 
                                 if self.distance < 4:
                                     # set colors to red
@@ -355,10 +355,10 @@ class Detect:
 
 
 focal_person = None
-focal_phone = None  
+focal_dog = None  
 
 def inference(): 
-    global focal_person, focal_phone               
+    global focal_person, focal_dog               
     detect = Detect()
 
     detect.config('weights/v5lite-g.pt', 'ref/50.jpg', 0, True, False)
@@ -371,16 +371,16 @@ def inference():
 
     detect.detect()
 
-    phone, phLabel = detect.width_in_rf, detect.label
+    dog, dogLabel = detect.width_in_rf, detect.label
 
-    print(f'{plabel}: {person} | {phLabel}: {phone}')
+    print(f'{plabel}: {person} | {dogLabel}: {dog}')
 
     focal_person = detect.focalLength(person)
-    focal_phone = detect.focalLength(phone)
+    focal_dog = detect.focalLength(dog)
 
-    print(f'focal length of person: {focal_person} | focal length of phone: {focal_phone}')
+    print(f'focal length of person: {focal_person} | focal length of dog: {focal_dog}')
 
-    detect.config('weights/v5lite-s.pt', 'https://192.168.1.23:8080/video', [0,17], False, False)
+    detect.config('weights/v5lite-s.pt', 'https://192.168.1.23:8080/video', [0,16], False, False)
 
     detect.detect()
     print(detect.get_haptics())
