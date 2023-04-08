@@ -1,16 +1,9 @@
 import argparse
-import RPi.GPIO as GPIO
-import time
 from pathlib import Path
-import pyttsx3
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-import threading
-
-from flask import Flask, request
 from numpy import random
-
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
 from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
@@ -18,19 +11,22 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
-
+import pyttsx3
+# import RPi.GPIO as GPIO
+import time
+import threading
 
 
 class Detect:
     def __init__(self):
-       self.opt = argparse.Namespace(agnostic_nms=False, 
+        self.opt = argparse.Namespace(agnostic_nms=False, 
                                      augment=False, 
                                      classes=None, 
-                                     conf_thres=0.25, 
+                                     conf_thres=0.5, 
                                      device='',
                                      exist_ok=False, 
                                      img_size=640, 
-                                     iou_thres=0.45, 
+                                     iou_thres=0.5, 
                                      name='test/exp', 
                                      nosave=False,
                                      project='', 
@@ -41,29 +37,23 @@ class Detect:
                                      view_img=False, 
                                      weights='', 
                                      read = False)
-       self.width_in_rf = 0
-       self.label = ''
-       self.KNOWN_DISTANCE = 25.0
-       self.PERSON_WIDTH = 40
-       self.MOBILE_WIDTH = 3.0
-       self.CONFIDENCE_THRESHOLD = 0.4
-       self.NMS_THRESHOLD = 0.3
-       self.distance = 0
-       self.haptics = 'off'
-       self.leftVib= 23
-       self.righVib = 24
- 
-
+        self.width_in_rf = 0
+        self.label = ''
+        self.KNOWN_DISTANCE = 25.0
+        self.PERSON_WIDTH = 40
+        self.DOG_WIDTH = 55
+        self.MOTOR_WIDTH = 55
+        self.CAT_WIDTH = 30
+        self.BICYCLE_WIDTH = 55
+        self.BENCH_WIDTH = 100
+        self.CONFIDENCE_THRESHOLD = 0.4
+        self.NMS_THRESHOLD = 0.3
+        self.distance = 0
+        self.haptics = 'off'
+        self.leftVib= 23
+        self.righVib = 24
     
-    def left_vib(self):
-        GPIO.output(self.leftVib, GPIO.HIGH)
-        time.sleep(.2)
-        GPIO.output(self.leftVib, GPIO.LOW)
-
-    def right_vib(self):
-        GPIO.output(self.righVib, GPIO.HIGH)
-        time.sleep(.2)
-        GPIO.output(self.righVib, GPIO.LOW)
+ 
     
     def center_vib(self):
         tts_thread_l = threading.Thread(target=self.left_vib)
@@ -71,9 +61,9 @@ class Detect:
         tts_thread_l.start()
         tts_thread_r.start()
 
-    def focalLength(self, width_in_rf):
-        focal_length = (width_in_rf * self.KNOWN_DISTANCE) / self.PERSON_WIDTH
-      
+    def focalLength(self, width_in_rf, width):
+        focal_length = (width_in_rf * self.KNOWN_DISTANCE) / width
+        
         return focal_length
    
     def get_haptics(self):
@@ -81,12 +71,10 @@ class Detect:
     
     def distanceEstimate(self, focal_length, width_in_rf):
         distance = (focal_length * self.KNOWN_DISTANCE) / width_in_rf
-        
         # convert inches to feet
         distance = distance / 100
         
         return distance
-    
     
     
     def detect(self, save_img=False):
@@ -97,12 +85,9 @@ class Detect:
         engine.setProperty('voice', 'english+f4')
         engine.setProperty('rate', 180) #changing voice to index 1 for female voice
 
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(self.leftVib, GPIO.OUT)
-        GPIO.setup(self.righVib, GPIO.OUT)
-        GPIO.output(self.leftVib, GPIO.HIGH)
-        GPIO.output(self.leftVib, GPIO.LOW)
+        # initialize gpio
+        # self.gpio_init()
+        
         source, weights, view_img, save_txt, imgsz = self.opt.source, self.opt.weights, self.opt.view_img, self.opt.save_txt, self.opt.img_size
         save_img = not self.opt.nosave and not source.endswith('.txt')  # save inference images
         webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -211,21 +196,14 @@ class Detect:
 
                             # Determine if the bounding box is on the left, center, or right of the image
                             if bbox_center < image_center - 50:
-                                positionInFrame = "left"
                                 detected_area.append("left")
                             elif bbox_center > image_center + 50:
-                                positionInFrame = "right"
                                 detected_area.append("right")
                             else:
-                                positionInFrame = "center"
                                 detected_area.append("center")
-                            # urlPos = "http://127.0.0.1:5000/api/haptics/" + positionInFrame
-                            # print(urlPos)
-                            # response = request.get("http://127.0.0.1:5000/api/haptics/" + positionInFrame)
-                            # print (response.text)
+
                             self.label = f'{names[int(cls)]} {int(cls)}'
-                            # print width
-                            # print(f'width: {self.width_in_rf} label: {self.label}')
+
                             
                             if (self.opt.read == False):
                                 
@@ -233,6 +211,12 @@ class Detect:
                                     self.distance = self.distanceEstimate(focal_person, self.width_in_rf)
                                 elif names[int(cls)] == 'dog':
                                     self.distance = self.distanceEstimate(focal_dog, self.width_in_rf)
+                                elif names[int(cls)] == 'cat':
+                                    self.distance = self.distanceEstimate(focal_cat, self.width_in_rf)
+                                elif names[int(cls)] == 'motor':
+                                    self.distance = self.distanceEstimate(focal_motor, self.width_in_rf)
+                                elif names[int(cls)] == 'bicycle':
+                                    self.distance = self.distanceEstimate(focal_bicycle, self.width_in_rf)
                                 
                                 if self.distance < 4:
                                     # set colors to red
@@ -258,19 +242,19 @@ class Detect:
                         for position in detected_area:
                             if position == "left":
                                 print("Left")
-                                self.left_vib()
+                                # self.left_vib()
                             elif position == "right":
                                 print("Right")
-                                self.right_vib()
+                                # self.right_vib()
                             else:
                                 print("Center")
-                                self.center_vib()
+                                # self.center_vib()
                         if len(detected_classes) > 0:
                             speech = f"Be careful! A {detected_string}"
                             print(f'Speech: {speech}')
 
                             # Start a new thread to run the speak_warning function                    
-                            tts_thread = threading.Thread(target=self.speak_warning, args=(speech,engine,))
+                            tts_thread = threading.Thread(target=self.speak_warning, args=(speech,engine))
                             tts_thread.start()
 
                 if view_img:
@@ -312,14 +296,40 @@ class Detect:
             engine.say(str)
             engine.runAndWait()
             
+    # def gpio_init(self):
+    #     GPIO.setmode(GPIO.BCM)
+    #     GPIO.setwarnings(False)
+    #     GPIO.setup(self.leftVib, GPIO.OUT)
+    #     GPIO.setup(self.righVib, GPIO.OUT)
+    #     GPIO.output(self.leftVib, GPIO.HIGH)
+    #     GPIO.output(self.leftVib, GPIO.LOW)
     
+    # def left_vib(self):
+    #     GPIO.output(self.leftVib, GPIO.HIGH)
+    #     time.sleep(.2)
+    #     GPIO.output(self.leftVib, GPIO.LOW)
+
+    # def right_vib(self):
+    #     GPIO.output(self.righVib, GPIO.HIGH)
+    #     time.sleep(.2)
+    #     GPIO.output(self.righVib, GPIO.LOW)
+        
     def config(self, weights, source, classes, read, view_img):
         self.opt.weights = weights
         self.opt.source = source
         self.opt.classes = classes
         self.opt.read = read
         self.opt.view_img = view_img
-        
+    
+    def read_focal(self, model, src, classes, width):
+        self.config(model, src, classes, True, False)
+
+        self.detect()
+
+        focal_length = self.focalLength(self.width_in_rf, width)
+
+        return self.width_in_rf, focal_length
+     
     def parse_opt(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--weights', nargs='+', type=str, default='weights/v5lite-s.pt', help='model.pt path(s)')
@@ -341,7 +351,6 @@ class Detect:
         parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
         parser.add_argument('--read', action='store_true')
         self.opt = parser.parse_args()
-        print(self.opt)
         check_requirements(exclude=('pycocotools', 'thop'))
 
         with torch.no_grad():
@@ -352,35 +361,35 @@ class Detect:
             else:
                 self.detect()
 
-
-
-focal_person = None
-focal_dog = None  
-
 def inference(): 
-    global focal_person, focal_dog               
-    detect = Detect()
+    global focal_person, focal_dog, focal_cat, focal_motor, focal_bicycle  
+    
+    obs = Detect()
+    
+    person_width_px, focal_person = obs.read_focal('weights/v5lite-g.pt', 'ref/50.jpg', 0, obs.PERSON_WIDTH)
+    dog_width_px, focal_dog = obs.read_focal('weights/v5lite-g.pt', 'ref/dog50.jpg', 16, obs.DOG_WIDTH)
+    cat_width_px, focal_cat = obs.read_focal('weights/v5lite-g.pt', 'ref/dog50.jpg', 16, obs.CAT_WIDTH)
+    motor_width_px, focal_motor = obs.read_focal('weights/v5lite-g.pt', 'ref/motor.png', 3, obs.MOTOR_WIDTH)
+    bicycle_width_px, focal_bicycle = obs.read_focal('weights/v5lite-g.pt', 'ref/bicycle.jpg', 1, obs.BICYCLE_WIDTH)
+    
+    print(f'Person focal length: {focal_person}')
+    print(f'Dog focal length: {focal_dog}')
+    
+    print(f'Person width: {person_width_px}')
+    print(f'Dog width: {dog_width_px}')
+    
+    print(f'Cat focal length: {focal_cat}')
+    print(f'Cat width: {cat_width_px}')
+    
+    print(f'Motor focal length: {focal_motor}')
+    print(f'Motor width: {motor_width_px}')
+    
+    print(f'Bicycle focal length: {focal_bicycle}')
+    print(f'Bicycle width: {bicycle_width_px}')
+    
+    obs.config('weights/v5lite-s.pt', 'test_3.mp4', [0,1,3,13,15,16], False, True)
 
-    detect.config('weights/v5lite-g.pt', 'ref/50.jpg', 0, True, False)
-
-    detect.detect()
-
-    person, plabel = detect.width_in_rf, detect.label
-
-    detect.config('weights/v5lite-g.pt', 'ref/dog50.jpg', 16, True, False)
-
-    detect.detect()
-
-    dog, dogLabel = detect.width_in_rf, detect.label
-
-    print(f'{plabel}: {person} | {dogLabel}: {dog}')
-
-    focal_person = detect.focalLength(person)
-    focal_dog = detect.focalLength(dog)
-
-    print(f'focal length of person: {focal_person} | focal length of dog: {focal_dog}')
-
-    detect.config('weights/v5lite-s.pt', 'https://192.168.1.23:8080/video', [0,16], False, False)
-
-    detect.detect()
-    print(detect.get_haptics())
+    obs.detect()
+    
+if __name__ == "__main__":
+    inference()
