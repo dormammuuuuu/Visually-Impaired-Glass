@@ -10,12 +10,15 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
+import os
 
 import pyttsx3
 # import RPi.GPIO as GPIO
 import time
 import threading
 
+
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 class Detect:
     def __init__(self):
