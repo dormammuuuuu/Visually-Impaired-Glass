@@ -236,7 +236,7 @@ class Detect:
                                 
 
                     # Construct detected_string
-                    distance_strings = [f"too close to you" if distance < 3 else f"{round(float(distance), 1)} meters away" for distance in detected_distance]
+                    distance_strings = [f"too close to you" if distance < 2 else f"{round(float(distance), 1)} meters away" for distance in detected_distance]
                     position_strings = ["on your left"  if detected_area[i] == 'left' else "ahead of you" if detected_area[i] == 'center' else "on your right" for i in range(len(detected_area))]
                     detected_string = ", ".join([f"{clazz} {distance_strings[i]} {position_strings[i]}" for i, clazz in enumerate(detected_classes)])
                     
